@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proc Macro Expandinator</title>
+    <link rel="stylesheet" href="expandinator-ui/index.css" />
+  </head>
+  <body>
+    <h1>Proc Macro Expandinator</h1>
+    <select id="crate">
+      <option>Loading crates...</option>
+    </select>
+    <select id="macro">
+      <option>Loading macros...</option>
+    </select>
+    <main>
+      <div id="input"></div>
+      <div id="output"></div>
+    </main>
+    <script type="module" src="expandinator-ui/index.ts"></script>
+  </body>
+</html>

@@ -1,20 +1,23 @@
-use syn::punctuated::Pair;
+use syn::{
+    parse_quote, Block, Expr, ExprCast, FnArg, Ident, Item, ItemFn, ItemUse, Local, Pat, PatType,
+    ReturnType, Signature, Stmt, Type, UseGroup, UsePath, UseTree,
+};
 
-pub fn is_not_extern_crate_proc_macro(item: &syn::Item) -> bool {
-    if let syn::Item::ExternCrate(item) = item {
+pub fn is_not_extern_crate_proc_macro(item: &Item) -> bool {
+    if let Item::ExternCrate(item) = item {
         item.ident != "proc_macro"
     } else {
         true
     }
 }
 
-pub fn rewrite_use_proc_macro_to_use_proc_macro2(item: syn::Item) -> syn::Item {
-    if let syn::Item::Use(item) = item {
-        syn::Item::Use(syn::ItemUse {
-            tree: if let syn::UseTree::Path(tree) = item.tree {
-                syn::UseTree::Path(syn::UsePath {
+pub fn rewrite_use_proc_macro_to_use_proc_macro2(item: Item) -> Item {
+    if let Item::Use(item) = item {
+        Item::Use(ItemUse {
+            tree: if let UseTree::Path(tree) = item.tree {
+                UseTree::Path(UsePath {
                     ident: if tree.ident == "proc_macro" {
-                        syn::Ident::new("proc_macro2", proc_macro2::Span::call_site())
+                        Ident::new("proc_macro2", proc_macro2::Span::call_site())
                     } else {
                         tree.ident
                     },
@@ -30,39 +33,39 @@ pub fn rewrite_use_proc_macro_to_use_proc_macro2(item: syn::Item) -> syn::Item {
     }
 }
 
-fn rewrite_parse_macro_input_call(stmt: syn::Stmt) -> syn::Stmt {
-    if let syn::Stmt::Local(stmt) = stmt {
-        syn::Stmt::Local(syn::Local {
+fn rewrite_parse_macro_input_call(stmt: Stmt) -> Stmt {
+    if let Stmt::Local(stmt) = stmt {
+        Stmt::Local(Local {
             init: stmt.init.map(|(eq, expr)| {
                 (
                     eq,
-                    if let syn::Expr::Macro(expr) = *expr {
-                        if expr.mac.path.is_ident("parse_macro_input") {
+                    if let Expr::Macro(expr) = *expr {
+                        if expr.mac.path.is_ident("parse_macro_input") || expr.mac.path == parse_quote!(syn::parse_macro_input) {
                             let expected_type = if let Ok(cast) =
-                                syn::parse2::<syn::ExprCast>(expr.mac.tokens.clone())
+                                syn::parse2::<ExprCast>(expr.mac.tokens.clone())
                             {
                                 cast.ty
                             } else {
                                 assert_eq!(
-                                    syn::parse2::<syn::Ident>(expr.mac.tokens)
+                                    syn::parse2::<Ident>(expr.mac.tokens)
                                         .unwrap()
                                         .to_string(),
                                     "input"
                                 );
-                                if let syn::Pat::Type(pat) = &stmt.pat {
+                                if let Pat::Type(pat) = &stmt.pat {
                                     pat.ty.clone()
                                 } else {
                                     panic!("weird parse_macro_input! call (neither `as` nor explicit output type) at {:?}", stmt.let_token.span);
                                 }
                             };
-                            Box::new(syn::parse_quote! {
+                            Box::new(parse_quote! {
                                 match syn::parse2::<#expected_type>(input) {
                                     Ok(syntax_tree) => syntax_tree,
                                     Err(err) => return err.to_compile_error(),
                                 }
                             })
                         } else {
-                            Box::new(syn::Expr::Macro(expr))
+                            Box::new(Expr::Macro(expr))
                         }
                     } else {
                         expr
@@ -76,10 +79,10 @@ fn rewrite_parse_macro_input_call(stmt: syn::Stmt) -> syn::Stmt {
     }
 }
 
-pub fn rewrite_parse_macro_input_calls(item: syn::Item) -> syn::Item {
-    if let syn::Item::Fn(item) = item {
-        syn::Item::Fn(syn::ItemFn {
-            block: Box::new(syn::Block {
+pub fn rewrite_parse_macro_input_calls(item: Item) -> Item {
+    if let Item::Fn(item) = item {
+        Item::Fn(ItemFn {
+            block: Box::new(Block {
                 brace_token: item.block.brace_token,
                 stmts: item
                     .block
@@ -95,15 +98,17 @@ pub fn rewrite_parse_macro_input_calls(item: syn::Item) -> syn::Item {
     }
 }
 
-pub fn fix_proc_macro_error(item: syn::Item) -> syn::Item {
-    if let syn::Item::Fn(item) = item {
-        syn::Item::Fn(syn::ItemFn {
+pub fn fix_proc_macro_error(item: Item) -> Item {
+    if let Item::Fn(item) = item {
+        Item::Fn(ItemFn {
             attrs: item
                 .attrs
                 .into_iter()
                 .map(|attr| {
                     if attr.path.is_ident("proc_macro_error") {
-                        syn::parse_quote!(#[proc_macro_error(allow_not_macro)])
+                        parse_quote!(#[proc_macro_error(allow_not_macro)])
+                    } else if attr.path == parse_quote!(proc_macro_error::proc_macro_error) {
+                        parse_quote!(#[proc_macro_error::proc_macro_error(allow_not_macro)])
                     } else {
                         attr
                     }
@@ -116,27 +121,20 @@ pub fn fix_proc_macro_error(item: syn::Item) -> syn::Item {
     }
 }
 
-fn remove_parse_macro_input(tree: syn::UseTree) -> Option<syn::UseTree> {
+fn remove_parse_macro_input(tree: UseTree) -> Option<UseTree> {
     Some(match tree {
-        syn::UseTree::Name(ref name) => {
+        UseTree::Name(ref name) => {
             if name.ident == "parse_macro_input" {
                 return None;
             } else {
                 tree
             }
         }
-        syn::UseTree::Group(group) => syn::UseTree::Group(syn::UseGroup {
+        UseTree::Group(group) => UseTree::Group(UseGroup {
             items: group
                 .items
-                .into_pairs()
-                .filter_map(|pair| {
-                    Some(match pair {
-                        Pair::Punctuated(tree, comma) => {
-                            Pair::Punctuated(remove_parse_macro_input(tree)?, comma)
-                        }
-                        Pair::End(tree) => Pair::End(remove_parse_macro_input(tree)?),
-                    })
-                })
+                .into_iter()
+                .filter_map(remove_parse_macro_input)
                 .collect(),
             ..group
         }),
@@ -144,17 +142,17 @@ fn remove_parse_macro_input(tree: syn::UseTree) -> Option<syn::UseTree> {
     })
 }
 
-pub fn no_use_syn_parse_macro_input(item: syn::Item) -> Option<syn::Item> {
-    Some(if let syn::Item::Use(item) = item {
-        syn::Item::Use(syn::ItemUse {
-            tree: if let syn::UseTree::Path(tree) = item.tree {
+pub fn no_use_syn_parse_macro_input(item: Item) -> Option<Item> {
+    Some(if let Item::Use(item) = item {
+        Item::Use(ItemUse {
+            tree: if let UseTree::Path(tree) = item.tree {
                 if tree.ident == "syn" {
-                    syn::UseTree::Path(syn::UsePath {
+                    UseTree::Path(UsePath {
                         tree: Box::new(remove_parse_macro_input(*tree.tree)?),
                         ..tree
                     })
                 } else {
-                    syn::UseTree::Path(tree)
+                    UseTree::Path(tree)
                 }
             } else {
                 item.tree
@@ -164,4 +162,48 @@ pub fn no_use_syn_parse_macro_input(item: syn::Item) -> Option<syn::Item> {
     } else {
         item
     })
+}
+
+fn rewrite_type(r#type: Type) -> Type {
+    if r#type == parse_quote!(proc_macro::TokenStream) {
+        parse_quote!(proc_macro2::TokenStream)
+    } else {
+        r#type
+    }
+}
+
+fn rewrite_sig_types(sig: Signature) -> Signature {
+    Signature {
+        inputs: sig
+            .inputs
+            .into_iter()
+            .map(|arg| {
+                if let FnArg::Typed(arg) = arg {
+                    FnArg::Typed(PatType {
+                        ty: Box::new(rewrite_type(*arg.ty)),
+                        ..arg
+                    })
+                } else {
+                    arg
+                }
+            })
+            .collect(),
+        output: if let ReturnType::Type(arrow, r#type) = sig.output {
+            ReturnType::Type(arrow, Box::new(rewrite_type(*r#type)))
+        } else {
+            sig.output
+        },
+        ..sig
+    }
+}
+
+pub fn rewrite_proc_macro_fn_types_to_proc_macro2(item: Item) -> Item {
+    if let Item::Fn(item) = item {
+        Item::Fn(ItemFn {
+            sig: rewrite_sig_types(item.sig),
+            ..item
+        })
+    } else {
+        item
+    }
 }

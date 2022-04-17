@@ -7,6 +7,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, Result};
 use crates_index::Version;
+use regex::Regex;
 use semver::VersionReq;
 
 mod rewrite;
@@ -99,28 +100,24 @@ fn build_crate_for_web(crate_version: &Version) {
     let crate_extract_path = extract_crate_tarball(crate_version).expect("failed to extract crate");
     let crate_root = get_subfolder(&crate_extract_path).expect("failed to extract crate");
     replace_text(&crate_root, "Cargo.toml", |cargo_toml| {
-        cargo_toml
-            .replace(
-                "proc-macro = true",
-                r#"crate-type = ["cdylib"]
+        lazy_static::lazy_static! {
+            static ref PROC_MACRO_TRUE: Regex = Regex::new("proc[_-]macro = true").unwrap();
+            static ref PROC_MACRO_ERROR_1: Regex = Regex::new(r#"\[dependencies.proc-macro-error\]\nversion = "1(\.\d\.\d)?""#).unwrap();
+        }
+        let cargo_toml = PROC_MACRO_TRUE.replace_all(cargo_toml, r#"
+crate-type = ["cdylib"]
 [dependencies.wasm-bindgen]
 version = "0.2.80"
 [dependencies.prettyplease]
 version = "0.1.9"
-            "#,
-            )
-            .replace(
-                r#"
-[dependencies.proc-macro-error]
-version = "1"
-                "#
-                .trim(),
-                r#"
+            "#.trim(),
+        );
+        let cargo_toml = PROC_MACRO_ERROR_1.replace_all(&cargo_toml, r#"
 [dependencies.proc-macro-error]
 git = "https://github.com/boringcactus/proc-macro2-error"
-                "#
-                .trim(),
-            )
+            "#.trim(),
+        );
+        cargo_toml.to_string()
     })
     .expect("couldn't patch Cargo.toml");
     // TODO be smart about this
@@ -141,6 +138,7 @@ git = "https://github.com/boringcactus/proc-macro2-error"
                 .map(rewrite::rewrite_parse_macro_input_calls)
                 .filter_map(rewrite::no_use_syn_parse_macro_input)
                 .map(rewrite::fix_proc_macro_error)
+                .map(rewrite::rewrite_proc_macro_fn_types_to_proc_macro2)
                 .flat_map(|item| {
                     if let syn::Item::Fn(item) = item {
                         let orig_fn_name = item.sig.ident.clone();
@@ -207,7 +205,7 @@ git = "https://github.com/boringcactus/proc-macro2-error"
     assert!(cargo_build.success(), "couldn't run cargo build");
     let wasm_path = crate_root
         .join("target/wasm32-unknown-unknown/debug")
-        .join(format!("{}.wasm", &name));
+        .join(format!("{}.wasm", name.replace('-', "_")));
     let wasm_bindgen = Command::new("wasm-bindgen")
         .arg(wasm_path)
         .args(["--out-dir", "out", "--out-name"])

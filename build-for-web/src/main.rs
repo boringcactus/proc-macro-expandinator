@@ -250,17 +250,11 @@ version = "0.1.9"
     .expect("couldn't patch src/lib.rs");
     let cargo_path = env::var_os("CARGO").expect("couldn't run cargo");
     let cargo_build = Command::new(&cargo_path)
-        .args(["build", "--target", "wasm32-unknown-unknown"])
+        .args(["build", "--quiet", "--target", "wasm32-unknown-unknown"])
         .current_dir(&crate_root)
         .status()
         .expect("couldn't run cargo build");
     assert!(cargo_build.success(), "couldn't run cargo build");
-    let cargo_install = Command::new(&cargo_path)
-        .args(["install", "wasm-bindgen-cli", "--version", "0.2.80"])
-        .current_dir(&crate_root)
-        .status()
-        .expect("couldn't install wasm-bindgen-cli");
-    assert!(cargo_install.success(), "couldn't run cargo install");
     let wasm_path = crate_root
         .join("target/wasm32-unknown-unknown/debug")
         .join(format!("{}.wasm", &name));
@@ -280,6 +274,12 @@ version = "0.1.9"
 }
 
 fn main() {
+    let cargo_path = env::var_os("CARGO").expect("couldn't run cargo");
+    let cargo_install = Command::new(&cargo_path)
+        .args(["install", "wasm-bindgen-cli", "--version", "0.2.80"])
+        .status()
+        .expect("couldn't install wasm-bindgen-cli");
+    assert!(cargo_install.success(), "couldn't run cargo install");
     let targets = fs::read_to_string("targets.txt").expect("failed to read targets.txt");
     let targets = targets
         .lines()
@@ -292,11 +292,17 @@ fn main() {
             &VersionReq::parse(version).expect("failed to parse targets.txt"),
         )
         .expect("failed to get latest version of crate");
+        println!(
+            "Building {} {} ({})...",
+            name,
+            version,
+            crate_version.version()
+        );
         targets_lines.push(
             format!(
-                r#""{0} {1}": {{ lib: () => import("./{2}-{3}.js"), data: () => import("./{2}-{3}.json") }}"#,
+                r#""{0} {1}": {{ lib: () => import("./{0}-{2}.js"), data: () => import("./{0}-{2}.json") }}"#,
                 name, version,
-                crate_version.name(), crate_version.version().replace(".", "-")
+                crate_version.version().replace(".", "-")
             )
         );
         build_crate_for_web(&crate_version);

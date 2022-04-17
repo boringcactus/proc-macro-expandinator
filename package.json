@@ -5,7 +5,8 @@
   "scripts": {
     "build": "parcel build index.html",
     "dev": "parcel index.html",
-    "format": "prettier -w index.html expandinator-ui/*"
+    "format": "prettier -w index.html expandinator-ui/*",
+    "test": "tsc"
   },
   "author": "boringcactus",
   "dependencies": {
@@ -16,7 +17,9 @@
     "parcel": "^2.4.1"
   },
   "devDependencies": {
+    "@tsconfig/recommended": "^1.0.1",
     "prettier": "^2.6.2",
-    "process": "^0.11.10"
+    "process": "^0.11.10",
+    "typescript": "^4.6.3"
   }
 }

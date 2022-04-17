@@ -302,10 +302,9 @@ fn main() {
         build_crate_for_web(&crate_version);
     }
     let targets_file = format!(
-        r#"
-export default {{
+        r#"export default {{
     {}
-}}
+}} as Record<string, {{ lib: () => Promise<any>; data: () => Promise<any> }}>;
 "#,
         targets_lines.join(",\n")
     );

@@ -4,7 +4,7 @@ import { indentWithTab } from "@codemirror/commands";
 import { rust } from "@codemirror/lang-rust";
 import targets from "../out/targets";
 
-let targetWasm;
+let targetWasm: any;
 
 const crateSelect = document.getElementById("crate") as HTMLSelectElement;
 crateSelect.innerHTML = "<option value=''>Select a crate</option>";
@@ -46,7 +46,7 @@ let inputEditor = new EditorView({
       }),
     ],
   }),
-  parent: document.getElementById("input"),
+  parent: document.getElementById("input")!,
 });
 
 let outputEditor = new EditorView({
@@ -54,7 +54,7 @@ let outputEditor = new EditorView({
     doc: "// enter input and the macro will be expanded",
     extensions: [basicSetup, rust(), EditorState.readOnly.of(true)],
   }),
-  parent: document.getElementById("output"),
+  parent: document.getElementById("output")!,
 });
 
 function expand() {

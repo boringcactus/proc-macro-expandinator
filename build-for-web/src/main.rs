@@ -198,13 +198,19 @@ git = "https://github.com/boringcactus/proc-macro2-error"
     .expect("couldn't patch src/lib.rs");
     let cargo_path = env::var_os("CARGO").expect("couldn't run cargo");
     let cargo_build = Command::new(&cargo_path)
-        .args(["build", "--quiet", "--target", "wasm32-unknown-unknown"])
+        .args([
+            "build",
+            "--quiet",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
         .current_dir(&crate_root)
         .status()
         .expect("couldn't run cargo build");
     assert!(cargo_build.success(), "couldn't run cargo build");
     let wasm_path = crate_root
-        .join("target/wasm32-unknown-unknown/debug")
+        .join("target/wasm32-unknown-unknown/release")
         .join(format!("{}.wasm", name.replace('-', "_")));
     let wasm_bindgen = Command::new("wasm-bindgen")
         .arg(wasm_path)

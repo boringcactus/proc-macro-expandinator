@@ -233,7 +233,7 @@ fn main() {
     let targets = fs::read_to_string("targets.txt").expect("failed to read targets.txt");
     let targets = targets
         .lines()
-        .filter(|line| !line.is_empty())
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| line.split_once(' ').expect("failed to parse targets.txt"));
     let mut targets_lines = vec![];
     for (name, version) in targets {

@@ -110,6 +110,8 @@ crate-type = ["cdylib"]
 version = "0.2.80"
 [dependencies.prettyplease]
 version = "0.1.9"
+[dependencies.console_error_panic_hook]
+version = "0.1.7"
             "#.trim(),
         );
         let cargo_toml = PROC_MACRO_ERROR_1.replace_all(&cargo_toml, r#"
@@ -177,6 +179,7 @@ git = "https://github.com/boringcactus/proc-macro2-error"
                                     syn::parse_quote! {
                                         #[wasm_bindgen::prelude::wasm_bindgen]
                                         pub fn #fn_name(input: String) -> String {
+                                            console_error_panic_hook::set_once();
                                             let output = #orig_fn_name(input.parse().unwrap());
                                             prettyplease::unparse(&syn::parse2(output).unwrap())
                                         }

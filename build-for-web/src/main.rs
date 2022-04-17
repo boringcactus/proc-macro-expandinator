@@ -7,6 +7,8 @@ use std::process::Command;
 
 use anyhow::{anyhow, Result};
 use crates_index::Version;
+use proc_macro2::{Ident, Punct, Spacing, Span, TokenStream};
+use quote::{ToTokens, TokenStreamExt};
 use regex::Regex;
 use semver::VersionReq;
 
@@ -144,7 +146,9 @@ git = "https://github.com/boringcactus/proc-macro2-error"
                 .flat_map(|item| {
                     if let syn::Item::Fn(item) = item {
                         let orig_fn_name = item.sig.ident.clone();
+                        // TODO enum instead
                         let mut derive: Option<syn::Ident> = None;
+                        let mut function_like = false;
                         let old_attr_count = item.attrs.len();
                         let new_attrs: Vec<_> = item
                             .attrs
@@ -157,6 +161,12 @@ git = "https://github.com/boringcactus/proc-macro2-error"
                                     if let syn::Expr::Path(path) = derive_type {
                                         derive = path.path.get_ident().cloned();
                                     }
+                                    false
+                                } else if attr.path.is_ident("proc_macro") {
+                                    function_like = true;
+                                    false
+                                } else if attr.path.is_ident("proc_macro_attribute") {
+                                    // TODO support attributes
                                     false
                                 } else {
                                     true
@@ -182,6 +192,35 @@ git = "https://github.com/boringcactus/proc-macro2-error"
                                             console_error_panic_hook::set_once();
                                             let output = #orig_fn_name(input.parse().unwrap());
                                             prettyplease::unparse(&syn::parse2(output).unwrap())
+                                        }
+                                    },
+                                ]
+                            } else if function_like {
+                                let fn_name = quote::format_ident!("expand_{}", orig_fn_name);
+                                functions.insert(format!("{}!", orig_fn_name), fn_name.to_string());
+
+                                // smdh https://github.com/dtolnay/quote/pull/99
+                                struct PoundOutput;
+                                impl ToTokens for PoundOutput {
+                                    fn to_tokens(&self, tokens: &mut TokenStream) {
+                                        tokens.append(Punct::new('#', Spacing::Alone));
+                                        tokens.append(Ident::new("output", Span::call_site()));
+                                    }
+                                }
+
+                                vec![
+                                    item,
+                                    syn::parse_quote! {
+                                        #[wasm_bindgen::prelude::wasm_bindgen]
+                                        pub fn #fn_name(input: String) -> String {
+                                            console_error_panic_hook::set_once();
+                                            let output = #orig_fn_name(input.parse().unwrap());
+                                            let result = prettyplease::unparse(&syn::parse_quote!(fn expandinator_wrapper() { # PoundOutput }))
+                                                .replace("fn expandinator_wrapper() {\n    ", "");
+                                            let result = result
+                                                .strip_suffix("}\n")
+                                                .unwrap_or(&result);
+                                            result.replace("\n    ", "\n")
                                         }
                                     },
                                 ]

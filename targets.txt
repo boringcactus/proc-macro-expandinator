@@ -1,3 +1,4 @@
 serde_derive 1
 clap_derive 3
 knuffel-derive 2
+yew-macro 0.19

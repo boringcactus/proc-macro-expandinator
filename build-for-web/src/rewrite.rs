@@ -41,25 +41,19 @@ fn rewrite_parse_macro_input_call(stmt: Stmt) -> Stmt {
                     eq,
                     if let Expr::Macro(expr) = *expr {
                         if expr.mac.path.is_ident("parse_macro_input") || expr.mac.path == parse_quote!(syn::parse_macro_input) {
-                            let expected_type = if let Ok(cast) =
+                            let (input, r#type) = if let Ok(cast) =
                                 syn::parse2::<ExprCast>(expr.mac.tokens.clone())
                             {
-                                cast.ty
+                                (cast.expr, cast.ty)
                             } else {
-                                assert_eq!(
-                                    syn::parse2::<Ident>(expr.mac.tokens)
-                                        .unwrap()
-                                        .to_string(),
-                                    "input"
-                                );
                                 if let Pat::Type(pat) = &stmt.pat {
-                                    pat.ty.clone()
+                                    (syn::parse2(expr.mac.tokens).unwrap(), pat.ty.clone())
                                 } else {
                                     panic!("weird parse_macro_input! call (neither `as` nor explicit output type) at {:?}", stmt.let_token.span);
                                 }
                             };
                             Box::new(parse_quote! {
-                                match syn::parse2::<#expected_type>(input) {
+                                match syn::parse2::<#r#type>(#input) {
                                     Ok(syntax_tree) => syntax_tree,
                                     Err(err) => return err.to_compile_error(),
                                 }
@@ -138,6 +132,7 @@ fn remove_parse_macro_input(tree: UseTree) -> Option<UseTree> {
                 .collect(),
             ..group
         }),
+        UseTree::Path(path) => UseTree::Path(path),
         tree => todo!("handle syn:: tree {:?}", tree),
     })
 }

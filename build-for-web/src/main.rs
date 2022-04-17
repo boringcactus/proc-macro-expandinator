@@ -268,7 +268,7 @@ version = "0.1.9"
         .arg(wasm_path)
         .args(["--out-dir", "out", "--out-name"])
         .arg(format!("{}-{}", &name, &version.replace(".", "-")))
-        .arg("--no-typescript")
+        .args(["--target", "web"])
         .status()
         .expect("couldn't wasm-bindgen");
     assert!(wasm_bindgen.success(), "couldn't bindgen the wasm");
@@ -285,22 +285,29 @@ fn main() {
         .lines()
         .filter(|line| !line.is_empty())
         .map(|line| line.split_once(" ").expect("failed to parse targets.txt"));
-    let mut versions: HashMap<String, String> = HashMap::new();
+    let mut targets_lines = vec![];
     for (name, version) in targets {
         let crate_version = latest_matching_version(
             name,
             &VersionReq::parse(version).expect("failed to parse targets.txt"),
         )
         .expect("failed to get latest version of crate");
-        versions.insert(
-            format!("{} {}", name, version),
-            format!("{}-{}", crate_version.name(), crate_version.version().replace(".", "-")),
+        targets_lines.push(
+            format!(
+                r#""{0} {1}": {{ lib: () => import("./{2}-{3}.js"), data: () => import("./{2}-{3}.json") }}"#,
+                name, version,
+                crate_version.name(), crate_version.version().replace(".", "-")
+            )
         );
         build_crate_for_web(&crate_version);
     }
-    fs::write(
-        "out/targets.json",
-        serde_json::to_string(&versions).expect("couldn't write the metadata"),
-    )
-    .expect("couldn't write the metadata");
+    let targets_file = format!(
+        r#"
+export default {{
+    {}
+}}
+"#,
+        targets_lines.join(",\n")
+    );
+    fs::write("out/targets.ts", targets_file).expect("couldn't write the metadata");
 }

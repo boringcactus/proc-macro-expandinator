@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "expands rust proc macros",
   "scripts": {
-    "build": "parcel build index.html out/*",
-    "dev": "parcel index.html out/*.js",
+    "build": "parcel build index.html",
+    "dev": "parcel index.html",
     "format": "prettier -w index.html expandinator-ui/*"
   },
   "author": "boringcactus",

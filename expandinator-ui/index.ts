@@ -2,17 +2,15 @@ import { EditorState, basicSetup } from "@codemirror/basic-setup";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { rust } from "@codemirror/lang-rust";
-import targets from "../out/targets.json";
+import targets from "../out/targets";
 
 let targetWasm;
 
 const crateSelect = document.getElementById("crate") as HTMLSelectElement;
 crateSelect.innerHTML = "<option value=''>Select a crate</option>";
 for (const targetLabel in targets) {
-  const targetValue = targets[targetLabel];
   const thisOption = document.createElement("option");
   thisOption.textContent = targetLabel;
-  thisOption.value = targetValue;
   crateSelect.appendChild(thisOption);
 }
 
@@ -20,7 +18,7 @@ const macroSelect = document.getElementById("macro") as HTMLSelectElement;
 crateSelect.addEventListener('input', async () => {
   if (crateSelect.value === '') return;
   macroSelect.innerHTML = "<option value=''>Loading macros...</option>";
-  const macros = await import(`./out/${crateSelect.value}.json`);
+  const macros = await targets[crateSelect.value].data();
   macroSelect.innerHTML = "<option value=''>Select a macro</option>";
   for (const macroLabel in macros) {
     const macroValue = macros[macroLabel];
@@ -29,8 +27,8 @@ crateSelect.addEventListener('input', async () => {
     thisMacro.value = macroValue;
     macroSelect.appendChild(thisMacro);
   }
-  targetWasm = await import(`/out/${crateSelect.value}.js`);
-  await targetWasm.default(`./out/${crateSelect.value}.wasm`);
+  targetWasm = await targets[crateSelect.value].lib();
+  targetWasm.default();
 });
 
 macroSelect.addEventListener('input', expand);
@@ -60,7 +58,7 @@ function expand() {
     output = '// enter input and pick a macro and the macro will be expanded';
   } else {
     const targetFunction = targetWasm[macroSelect.value];
-    const input = inputEditor.state.doc;
+    const input = inputEditor.state.doc.toString();
     output = targetFunction(input);
   }
   outputEditor.dispatch({

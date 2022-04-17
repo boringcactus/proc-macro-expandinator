@@ -9,6 +9,8 @@ use anyhow::{anyhow, Result};
 use crates_index::Version;
 use semver::VersionReq;
 
+mod rewrite;
+
 fn latest_matching_version(crate_name: &str, crate_version_req: &VersionReq) -> Result<Version> {
     let crates_index = crates_index::Index::new_cargo_default()?;
     let crate_ = crates_index
@@ -98,15 +100,28 @@ fn build_crate_for_web(crate_version: &Version) {
         extract_crate_tarball(&crate_version).expect("failed to extract crate");
     let crate_root = get_subfolder(&crate_extract_path).expect("failed to extract crate");
     replace_text(&crate_root, "Cargo.toml", |cargo_toml| {
-        cargo_toml.replace(
-            "proc-macro = true",
-            r#"crate-type = ["cdylib"]
+        cargo_toml
+            .replace(
+                "proc-macro = true",
+                r#"crate-type = ["cdylib"]
 [dependencies.wasm-bindgen]
 version = "0.2.80"
 [dependencies.prettyplease]
 version = "0.1.9"
             "#,
-        )
+            )
+            .replace(
+                r#"
+[dependencies.proc-macro-error]
+version = "1"
+                "#
+                .trim(),
+                r#"
+[dependencies.proc-macro-error]
+git = "https://github.com/boringcactus/proc-macro2-error"
+                "#
+                .trim(),
+            )
     })
     .expect("couldn't patch Cargo.toml");
     // TODO be smart about this
@@ -122,99 +137,31 @@ version = "0.1.9"
             attrs,
             items: items
                 .into_iter()
-                .filter(|item| {
-                    if let syn::Item::ExternCrate(item) = item {
-                        item.ident != "proc_macro"
-                    } else {
-                        true
-                    }
-                })
-                .map(|item| {
-                    if let syn::Item::Use(item) = item {
-                        syn::Item::Use(syn::ItemUse {
-                            tree: if let syn::UseTree::Path(tree) = item.tree {
-                                syn::UseTree::Path(syn::UsePath {
-                                    ident: if tree.ident == "proc_macro" {
-                                        syn::Ident::new(
-                                            "proc_macro2",
-                                            proc_macro2::Span::call_site(),
-                                        )
-                                    } else {
-                                        tree.ident
-                                    },
-                                    ..tree
-                                })
-                            } else {
-                                item.tree
-                            },
-                            ..item
-                        })
-                    } else {
-                        item
-                    }
-                })
-                .map(|item| {
-                    if let syn::Item::Fn(item) = item {
-                        syn::Item::Fn(syn::ItemFn {
-                            block: Box::new(syn::Block {
-                                brace_token: item.block.brace_token,
-                                stmts: item
-                                    .block
-                                    .stmts
-                                    .into_iter()
-                                    .map(|stmt| {
-                                        if let syn::Stmt::Local(stmt) = stmt {
-                                            syn::Stmt::Local(syn::Local {
-                                                init: stmt.init.map(|(eq, expr)| {
-                                                    (
-                                                        eq,
-                                                        if let syn::Expr::Macro(expr) = *expr {
-                                                            if expr.mac.path.is_ident("parse_macro_input") {
-                                                                assert_eq!(syn::parse2::<syn::ExprCast>(expr.mac.tokens).unwrap(), syn::parse_quote!(input as DeriveInput));
-                                                                Box::new(syn::parse_quote! {
-                                                                    match syn::parse2::<DeriveInput>(input) {
-                                                                        Ok(syntax_tree) => syntax_tree,
-                                                                        Err(err) => return err.to_compile_error(),
-                                                                    }
-                                                                })
-                                                            } else {
-                                                                Box::new(syn::Expr::Macro(expr))
-                                                            }
-                                                        } else {
-                                                            expr
-                                                        },
-                                                    )
-                                                }),
-                                                ..stmt
-                                            })
-                                        } else {
-                                            stmt
-                                        }
-                                    })
-                                    .collect(),
-                            }),
-                            ..item
-                        })
-                    } else {
-                        item
-                    }
-                })
+                .filter(rewrite::is_not_extern_crate_proc_macro)
+                .map(rewrite::rewrite_use_proc_macro_to_use_proc_macro2)
+                .map(rewrite::rewrite_parse_macro_input_calls)
+                .filter_map(rewrite::no_use_syn_parse_macro_input)
+                .map(rewrite::fix_proc_macro_error)
                 .flat_map(|item| {
                     if let syn::Item::Fn(item) = item {
                         let orig_fn_name = item.sig.ident.clone();
                         let mut derive: Option<syn::Ident> = None;
                         let old_attr_count = item.attrs.len();
-                        let new_attrs: Vec<_> = item.attrs
+                        let new_attrs: Vec<_> = item
+                            .attrs
                             .into_iter()
-                            .filter(|attr| if attr.path.is_ident("proc_macro_derive") {
-                                let derive_options = syn::parse2::<syn::ExprTuple>(attr.tokens.clone()).unwrap();
-                                let derive_type = derive_options.elems.first().unwrap();
-                                if let syn::Expr::Path(path) = derive_type {
-                                    derive = path.path.get_ident().cloned();
+                            .filter(|attr| {
+                                if attr.path.is_ident("proc_macro_derive") {
+                                    let derive_options =
+                                        syn::parse2::<syn::ExprTuple>(attr.tokens.clone()).unwrap();
+                                    let derive_type = derive_options.elems.first().unwrap();
+                                    if let syn::Expr::Path(path) = derive_type {
+                                        derive = path.path.get_ident().cloned();
+                                    }
+                                    false
+                                } else {
+                                    true
                                 }
-                                false
-                            } else {
-                                true
                             })
                             .collect();
                         let new_attr_count = new_attrs.len();
@@ -225,15 +172,19 @@ version = "0.1.9"
                         if new_attr_count < old_attr_count {
                             if let Some(derive) = derive {
                                 let fn_name = quote::format_ident!("expand_{}", orig_fn_name);
-                                functions.insert(format!("#[derive({})]", derive), fn_name.to_string());
+                                functions
+                                    .insert(format!("#[derive({})]", derive), fn_name.to_string());
 
-                                vec![item, syn::parse_quote! {
-                                    #[wasm_bindgen::prelude::wasm_bindgen]
-                                    pub fn #fn_name(input: String) -> String {
-                                        let output = #orig_fn_name(input.parse().unwrap());
-                                        prettyplease::unparse(&syn::parse2(output).unwrap())
-                                    }
-                                }]
+                                vec![
+                                    item,
+                                    syn::parse_quote! {
+                                        #[wasm_bindgen::prelude::wasm_bindgen]
+                                        pub fn #fn_name(input: String) -> String {
+                                            let output = #orig_fn_name(input.parse().unwrap());
+                                            prettyplease::unparse(&syn::parse2(output).unwrap())
+                                        }
+                                    },
+                                ]
                             } else {
                                 vec![item]
                             }

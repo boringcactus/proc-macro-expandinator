@@ -1,0 +1,42 @@
+name: 'Publish to canon'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [canon]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+      - name: Build Rust
+        run: cargo run --package build-for-web
+      - name: Build Node
+        run: |
+          npm ci
+          npm run build
+      - name: Create archive
+        run: |
+          cd dist
+          touch artifact.tar
+          tar --dereference --hard-dereference -cvf artifact.tar --exclude=artifact.tar .
+      - name: Upload archive
+        uses: actions/upload-artifact@v3
+        with:
+          name: github-pages
+          path: dist/artifact.tar
+      - name: Deploy
+        uses: actions/deploy-pages@v1

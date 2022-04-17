@@ -96,8 +96,7 @@ fn replace_syn(
 fn build_crate_for_web(crate_version: &Version) {
     let name = crate_version.name();
     let version = crate_version.version();
-    let crate_extract_path =
-        extract_crate_tarball(&crate_version).expect("failed to extract crate");
+    let crate_extract_path = extract_crate_tarball(crate_version).expect("failed to extract crate");
     let crate_root = get_subfolder(&crate_extract_path).expect("failed to extract crate");
     replace_text(&crate_root, "Cargo.toml", |cargo_toml| {
         cargo_toml
@@ -212,13 +211,13 @@ git = "https://github.com/boringcactus/proc-macro2-error"
     let wasm_bindgen = Command::new("wasm-bindgen")
         .arg(wasm_path)
         .args(["--out-dir", "out", "--out-name"])
-        .arg(format!("{}-{}", &name, &version.replace(".", "-")))
+        .arg(format!("{}-{}", &name, &version.replace('.', "-")))
         .args(["--target", "web"])
         .status()
         .expect("couldn't wasm-bindgen");
     assert!(wasm_bindgen.success(), "couldn't bindgen the wasm");
     fs::write(
-        format!("out/{}-{}.json", &name, &version.replace(".", "-")),
+        format!("out/{}-{}.json", &name, &version.replace('.', "-")),
         serde_json::to_string(&functions).expect("couldn't write the metadata"),
     )
     .expect("couldn't write the metadata");
@@ -235,7 +234,7 @@ fn main() {
     let targets = targets
         .lines()
         .filter(|line| !line.is_empty())
-        .map(|line| line.split_once(" ").expect("failed to parse targets.txt"));
+        .map(|line| line.split_once(' ').expect("failed to parse targets.txt"));
     let mut targets_lines = vec![];
     for (name, version) in targets {
         let crate_version = latest_matching_version(
@@ -253,7 +252,7 @@ fn main() {
             format!(
                 r#""{0} {1}": {{ lib: () => import("./{0}-{2}.js"), data: () => import("./{0}-{2}.json") }}"#,
                 name, version,
-                crate_version.version().replace(".", "-")
+                crate_version.version().replace('.', "-")
             )
         );
         build_crate_for_web(&crate_version);
